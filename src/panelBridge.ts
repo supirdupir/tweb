@@ -280,8 +280,8 @@ export class PanelBridge {
    * Returns null when no password is stored — caller falls back to manual.
    */
   async getTwoFAPassword(): Promise<string | null> {
-    const url = this.origin + '/v1/accounts/' + this.accountId
-      + '/login/web/2fa-password?jwt=' + encodeURIComponent(this._currentJwt);
+    const url = this.origin + '/v1/accounts/' + this.accountId +
+      '/login/web/2fa-password?jwt=' + encodeURIComponent(this._currentJwt);
     let res: Response;
     try {
       res = await fetch(url, {method: 'GET'});

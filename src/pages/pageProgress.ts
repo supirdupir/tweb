@@ -134,15 +134,14 @@ async function iterateRestore(
     // ProgressBar overlay before pageIm starts painting heavy DOM.
     await pause(300);
     await mountPageIm();
-    return;
-  }
-
-  // Failure: bridge.setError was already called inside restoreCachedSession,
-  // so the DOM is already showing the error via the onStateChange listener.
-  // On unauthorized: we also POST /cache/revoke so the next /start returns
-  // cached=false and the operator sees a fresh QR flow.
-  if(result.code === 'unauthorized') {
-    void bridge.markCacheDead();
+  } else {
+    // Failure: bridge.setError was already called inside restoreCachedSession,
+    // so the DOM is already showing the error via the onStateChange listener.
+    // On unauthorized: we also POST /cache/revoke so the next /start returns
+    // cached=false and the operator sees a fresh QR flow.
+    if(result.code === 'unauthorized') {
+      void bridge.markCacheDead();
+    }
   }
 }
 
@@ -204,8 +203,8 @@ async function iterateQR(
       }
 
       const timestamp = Date.now() / 1000;
-      const diff = loginToken.expires - timestamp
-        - await rootScope.managers.timeManager.getServerTimeOffset();
+      const diff = loginToken.expires - timestamp -
+        await rootScope.managers.timeManager.getServerTimeOffset();
       await pause(diff > FETCH_INTERVAL ? 1e3 * FETCH_INTERVAL : 1e3 * diff | 0);
     } catch(err) {
       switch((err as ApiError).type) {
