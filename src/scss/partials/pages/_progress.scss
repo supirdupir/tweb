@@ -1,0 +1,112 @@
+/*
+ * Panel-mode progress UI. Replaces the QR-scan layout for iframe boot.
+ * Compositor-safe transitions (width animates but track is fixed-width,
+ * so no layout reflow — just paint).
+ */
+
+.tabs-tab.page-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.panel-progress-container {
+  width: 100%;
+  max-width: 360px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.panel-progress-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--primary-text-color);
+}
+
+.panel-progress-track {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: var(--surface-color);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.panel-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0;
+  background: var(--primary-color);
+  border-radius: 2px;
+  transition: width 0.3s ease-out, background 0.2s;
+
+  &.error {
+    background: var(--danger-color, #e53935);
+  }
+}
+
+.panel-progress-detail {
+  text-align: center;
+  font-size: 14px;
+  color: var(--secondary-text-color);
+  min-height: 20px;
+}
+
+.panel-progress-error {
+  text-align: center;
+  font-size: 14px;
+  color: var(--danger-color, #e53935);
+  margin-top: 4px;
+}
+
+.panel-progress-retry {
+  margin-top: 8px;
+}
+
+/*
+ * Full-screen overlay shown when MTProto dies after pageIm has already
+ * mounted (session revoked / auth_key invalid). pageProgress can't be
+ * re-mounted at that point because Page.installPromise is memoized.
+ */
+.panel-progress-hard-error-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.panel-progress-hard-error-card {
+  background: var(--surface-color);
+  color: var(--primary-text-color);
+  padding: 24px 32px;
+  border-radius: 12px;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+
+  h4 {
+    margin: 0 0 12px;
+    font-size: 18px;
+    font-weight: 500;
+  }
+
+  p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--secondary-text-color);
+    line-height: 1.4;
+  }
+}
