@@ -134,15 +134,15 @@ async function iterateRestore(
     // ProgressBar overlay before pageIm starts painting heavy DOM.
     await pause(300);
     await mountPageIm();
-  } else {
-    // Failure: bridge.setError was already called inside restoreCachedSession,
-    // so the DOM is already showing the error via the onStateChange listener.
-    // On unauthorized: we also POST /cache/revoke so the next /start returns
-    // cached=false and the operator sees a fresh QR flow.
-    if(result.code === 'unauthorized') {
-      void bridge.markCacheDead();
-    }
   }
+  // Failure: bridge.setError was already called inside restoreCachedSession,
+  // so the DOM is already showing the error via the onStateChange listener.
+  // We don't markCacheDead from here — the cache row may still be valid (the
+  // JWT might have been bad rather than the auth_key), and a destructive
+  // revoke on a healthy row would force the operator through full QR on
+  // their next attempt for no reason. If MTProto later confirms the auth_key
+  // is dead (AUTH_KEY_INVALID etc.), the global logging_out listener fires
+  // markCacheDead at that point.
 }
 
 async function iterateQR(
