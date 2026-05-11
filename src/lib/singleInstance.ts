@@ -64,6 +64,19 @@ export class SingleInstance extends EventListenerBase<{
       return;
     }
 
+    // Panel-iframe bypass: panel-bridge mounts each Telegram-Web account in
+    // its own iframe on the SAME origin (94.26.83.103:5174). singleInstance
+    // coordinates via localStorage `xt_instance` + a BroadcastChannel; with
+    // N panel iframes alive, all but the first see themselves as "other
+    // tabs" and deactivate with the "Too many tabs..." overlay. In panel
+    // mode each iframe is intentionally a separate Worker
+    // (noSharedWorker=1 forces dedicated workers per iframe), so tab
+    // arbitration is both useless and actively hostile to the UX —
+    // skip it entirely when the panel-bridge is on window.
+    if((window as any).__panelBridge) {
+      return;
+    }
+
     this.started = true;
     this.listenOtherClients();
     this.reset();
