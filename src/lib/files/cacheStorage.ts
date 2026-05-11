@@ -151,6 +151,19 @@ export default class CacheStorageController implements FileStorage {
   }
 
   private openDatabase(): Promise<Cache> {
+    // `caches` (CacheStorage API) is gated to *secure contexts* per WICG.
+    // The panel iframe currently runs over plain HTTP on a bare IP, where
+    // `globalThis.caches` is undefined and ANY reference to the bare
+    // `caches` identifier throws `ReferenceError: caches is not defined`
+    // synchronously. Without this guard, the worker's CacheStorageController
+    // construction crashes the entire MTProto manager startup before any
+    // page is mounted. The cache layer is purely a perf optimization for
+    // media — gracefully rejecting here lets the rest of tweb run unaffected
+    // (callers already handle openDatabase() rejections by falling back to
+    // direct fetch).
+    if(typeof caches === 'undefined') {
+      return this.openDbPromise ??= Promise.reject(new Error('CacheStorage unavailable (non-secure context)'));
+    }
     return this.openDbPromise ?? (this.openDbPromise = caches.open(this.dbName));
   }
 
@@ -163,6 +176,12 @@ export default class CacheStorageController implements FileStorage {
    */
   public deleteAll() {
     this.openDbPromise = undefined;
+    // Same guard as openDatabase — see comment there. Returning resolved
+    // `false` matches what `caches.delete` would return when the cache
+    // didn't exist, which is the safest no-op for callers.
+    if(typeof caches === 'undefined') {
+      return Promise.resolve(false);
+    }
     return caches.delete(this.dbName);
   }
 
