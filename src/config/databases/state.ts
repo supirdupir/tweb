@@ -6,13 +6,19 @@
 
 import type {Database} from '.';
 import {ActiveAccountNumber} from '@lib/accounts/types';
+import {panelScopedName} from '@lib/panelAccountScope';
 import {MOUNT_CLASS_TO} from '@config/debug';
 
 export type AccountDatabase = Database<'session' | 'stickerSets' | 'users' | 'chats' | 'messages' | 'dialogs' | 'webapp'>;
 export type CommonDatabase = Database<'session' | 'localStorage'>;
 
+// All three DB-name builders below scope by Panel `account_id` (URL param)
+// when present. `panelScopedName` returns the base name unchanged in
+// standalone mode (no `account_id`) so existing tweb users keep their
+// on-disk schema. See lib/panelAccountScope.ts.
+
 export const getOldDatabaseState = (): AccountDatabase => ({
-  name: `tweb`,
+  name: panelScopedName(`tweb`),
   version: 7,
   stores: [
     {
@@ -37,7 +43,7 @@ export const getOldDatabaseState = (): AccountDatabase => ({
 });
 
 export const getCommonDatabaseState = (): CommonDatabase => ({
-  name: `tweb-common`,
+  name: panelScopedName(`tweb-common`),
   version: 8,
   stores: [
     {
@@ -53,7 +59,7 @@ export const getCommonDatabaseState = (): CommonDatabase => ({
 export const getDatabaseState = (
   accountNumber: ActiveAccountNumber
 ): Database<'session' | 'stickerSets' | 'users' | 'chats' | 'messages' | 'dialogs' | 'webapp'> => ({
-  name: `tweb-account-${accountNumber}`,
+  name: panelScopedName(`tweb-account-${accountNumber}`),
   version: 9,
   stores: [
     {

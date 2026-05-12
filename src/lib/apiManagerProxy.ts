@@ -17,6 +17,7 @@ import rootScope, {BroadcastEvents} from '@lib/rootScope';
 import webpWorkerController from '@lib/webp/webpWorkerController';
 import DEBUG, {MOUNT_CLASS_TO} from '@config/debug';
 import sessionStorage from '@lib/sessionStorage';
+import {getPanelAccountId} from '@lib/panelAccountScope';
 import webPushApiManager from '@lib/webPushApiManager';
 import telegramMeWebManager from '@lib/telegramMeWebManager';
 import pause from '@helpers/schedulers/pause';
@@ -830,7 +831,13 @@ class ApiManagerProxy extends MTProtoMessagePort {
 
     const originalUrl = (worker as any).url;
 
-    const createWorker = (url: string) => new constructor(url, {type: 'module'});
+    // Defense-in-depth: propagate Panel account_id into the proxy
+    // worker via WorkerOptions.name so getPanelAccountId() resolves
+    // correctly inside any future code path the worker might run
+    // (panelAccountScope.ts:54-64 parses self.name with this prefix).
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
+    const createWorker = (url: string) => new constructor(url, {type: 'module', name: workerName});
     const attachWorkerToPort = (worker: SharedWorker | Worker) => this.attachWorkerToPort(
       worker,
       superMessagePort,
@@ -856,12 +863,17 @@ class ApiManagerProxy extends MTProtoMessagePort {
   }
 
   private async registerCryptoWorker() {
+    // Defense-in-depth: name the crypto worker `panel-{accountId}` so any
+    // future code path inside it that calls getPanelAccountId() resolves
+    // correctly (panelAccountScope.ts:54-64). Stateless today.
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
     await this.registerThreadedWorker({
       type: 'crypto',
       createWorker: () => {
         return new Worker(
           new URL('./crypto/crypto.worker.ts', import.meta.url),
-          {type: 'module'}
+          {type: 'module', name: workerName}
         );
       },
       superMessagePort: cryptoMessagePort
@@ -873,17 +885,30 @@ class ApiManagerProxy extends MTProtoMessagePort {
       return;
     }
 
+    // Propagate Panel account_id to the worker via the WorkerOptions.name
+    // field. The worker reads `self.name` in panelScopedName() to scope its
+    // IndexedDB names per Panel iframe — without this, all iframes' workers
+    // share `tweb-common` / `tweb-account-1` and a fresh-account iframe
+    // would surface a previously-opened account's chats (verified live
+    // with @TheresaWard866 → @Артем on 2026-04-26). Vite's worker plugin
+    // requires the `new URL(stringLiteral, import.meta.url)` pattern to
+    // be inline within `new Worker(...)` for build-time bundling, so we
+    // can't pre-build the URL into a variable — name option is the only
+    // way to inject runtime data without breaking Vite analysis.
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
+
     let worker: SharedWorker | Worker;
     if(IS_SHARED_WORKER_SUPPORTED) {
       worker = new SharedWorker(
         new URL('./mainWorker/index.worker.ts', import.meta.url),
-        {type: 'module'}
+        {type: 'module', name: workerName}
       );
       this.closeMTProtoWorker = () => (worker as SharedWorker).port.close();
     } else {
       worker = new Worker(
         new URL('./mainWorker/index.worker.ts', import.meta.url),
-        {type: 'module'}
+        {type: 'module', name: workerName}
       );
       this.closeMTProtoWorker = () => (worker as Worker).terminate();
     }

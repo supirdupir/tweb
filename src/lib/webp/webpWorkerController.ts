@@ -7,6 +7,7 @@
 import {MOUNT_CLASS_TO} from '@config/debug';
 import deferredPromise, {CancellablePromise} from '@helpers/cancellablePromise';
 import {WorkerTaskVoidTemplate} from '@types';
+import {getPanelAccountId} from '@lib/panelAccountScope';
 
 export interface ConvertWebPTask extends WorkerTaskVoidTemplate {
   type: 'convertWebp',
@@ -21,7 +22,12 @@ export class WebpWorkerController {
   private convertPromises: {[fileName: string]: CancellablePromise<Uint8Array>} = {};
 
   private init() {
-    this.worker = new Worker(new URL('./webp.worker.ts', import.meta.url), {type: 'module'});
+    // Defense-in-depth: name the worker `panel-{accountId}` so any
+    // future code path that calls getPanelAccountId() inside the worker
+    // resolves correctly (panelAccountScope.ts:54-64).
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
+    this.worker = new Worker(new URL('./webp.worker.ts', import.meta.url), {type: 'module', name: workerName});
     this.worker.addEventListener('message', (e) => {
       const task = e.data as ConvertWebPTask;
       const payload = task.payload;

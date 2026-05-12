@@ -16,6 +16,7 @@ import makeError from '@helpers/makeError';
 import rootScope from '@lib/rootScope';
 import toArray from '@helpers/array/toArray';
 import rlottieMessagePort from '@lib/rlottie/rlottieMessagePort';
+import {getPanelAccountId} from '@lib/panelAccountScope';
 
 export type LottieAssetName =
   | 'EmptyFolder'
@@ -98,12 +99,18 @@ export class LottieLoader {
   }
 
   private async registerLottieWorkers() {
+    // Defense-in-depth: name the worker `panel-{accountId}` so any future
+    // code path inside it that consults getPanelAccountId() resolves to
+    // the right scope (panelAccountScope.ts:54-64 parses self.name with
+    // this exact prefix). Stateless today, but cheap insurance.
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
     await apiManagerProxy.registerThreadedWorker({
       type: 'rlottie',
       createWorker: () => {
         return new Worker(
           new URL('./rlottie.worker.ts', import.meta.url),
-          {type: 'module'}
+          {type: 'module', name: workerName}
         );
       },
       superMessagePort: rlottieMessagePort

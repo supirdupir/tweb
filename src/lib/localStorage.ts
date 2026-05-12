@@ -18,6 +18,7 @@ import {StringKey, WorkerTaskTemplate} from '@types';
 import EncryptedStorageLayer from '@lib/encryptedStorageLayer';
 import {logger} from '@lib/logger';
 import MTProtoMessagePort from '@lib/mainWorker/mainMessagePort';
+import {getPanelAccountId} from '@lib/panelAccountScope';
 import DeferredIsUsingPasscode from '@lib/passcode/deferredIsUsingPasscode';
 
 
@@ -29,6 +30,14 @@ class LocalStorage<Storage extends Record<string, any>> {
   constructor() {
     if(Modes.test) {
       this.prefix = 't_';
+    }
+    // Panel mode (account_id URL param present): namespace every key so
+    // two iframes for different accounts don't overwrite each other's
+    // `account1` / `dc{N}_auth_key` / etc. on the shared origin. Composes
+    // with the `t_` test prefix.
+    const accountId = getPanelAccountId();
+    if(accountId) {
+      this.prefix += `panel-${accountId}-`;
     }
   }
 

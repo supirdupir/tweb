@@ -99,6 +99,20 @@ const onFirstMount = async() => {
 
       if(loginToken._ === 'auth.loginTokenSuccess') {
         const authorization = loginToken.authorization as any as AuthAuthorization.authAuthorization;
+        // Plan 06: when farm-side AcceptLoginToken returned
+        // password_pending=true, the authorization here will also carry
+        // a password-pending flag. The iframe must complete CheckPassword
+        // before pageIm makes sense — mount pagePassword (which auto-fills
+        // via PanelBridge.getTwoFAPassword) instead of pageIm.
+        const authAny = authorization as any;
+        const needsPassword = !!(authAny.password_pending || authAny.passwordPending);
+        if(needsPassword) {
+          stop = true;
+          cachedPromise = null;
+          const m = await import('./pagePassword');
+          m.default.mount();
+          return true;
+        }
         await rootScope.managers.apiManager.setUser(authorization.user);
         import('./pageIm').then((m) => m.default.mount());
         return true;
@@ -110,6 +124,27 @@ const onFirstMount = async() => {
 
       if(!prevToken || !bytesCmp(prevToken, loginToken.token)) {
         prevToken = loginToken.token;
+
+        // Plan 06 T16: hand fresh QR token to Panel so it can call auth.AcceptLoginToken
+        // via the existing-account farm session. Bridge is undefined when running
+        // outside Panel's iframe wrapper — fall through to normal QR display in
+        // that case (e.g. running tweb standalone). 2FA path: when Panel returns
+        // password_pending=true, we let the iframe's own exportLoginToken poll
+        // complete and dispatch loginTokenSuccess (which carries the same
+        // password_pending bit on the authorization object) — the success
+        // branch above mounts pagePassword from there. Mounting pagePassword
+        // here, before the iframe gets the new auth_key from loginTokenSuccess,
+        // hits AUTH_KEY_UNREGISTERED on account.GetPassword.
+        const bridge = (window as any).__panelBridge;
+        if(bridge) {
+          try {
+            await bridge.onQrToken(loginToken.token);
+          } catch(e) {
+            console.error('[panelBridge] onQrToken failed:', e);
+            // Fall through to QR display so user can scan with phone if Panel
+            // bridge is broken (e.g. JWT expired, Panel API down).
+          }
+        }
 
         const encoded = bytesToBase64(loginToken.token);
         const url = 'tg://login?token=' + fixBase64String(encoded, true);

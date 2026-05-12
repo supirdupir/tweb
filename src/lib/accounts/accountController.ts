@@ -84,25 +84,38 @@ export class AccountController extends StaticUtilityClass {
     });
 
     if(accountNumber === 1) {
-      // Panel-mode: snapshot the freshly-saved auth_key to Panel API so the
-      // next cached re-mount skips QR. Triple-gated:
-      //   1. accountNumber === 1 — only the primary slot (tweb's only one)
-      //   2. bridge present — initPanelBridge ran (panel mode active)
-      //   3. authKeyHex populated — fillMissingData replays this with empty
-      //      data; we want to skip those no-op replays
-      // The bridge itself has a latch (_userAuthFired) so multiple legitimate
-      // calls with valid data only POST /cache once. See .claude/rules/tweb.md
-      // § 4 (cache-write conditional gate) for the original gotcha.
-      const bridge = (window as any).__panelBridge;
+      // Plan 06 T17: after a successful auth save, snapshot to Panel for audit.
+      // Bridge is undefined when running outside Panel iframe — no-op.
+      // Only fires for accountNumber === 1 (Panel's single-account slot).
+      //
+      // ⚠️ This code path runs in BOTH main thread (loadState init, passcode
+      // actions) AND SharedWorker (apiManager.setUserAuth, etc.). In worker
+      // context, bare `window` throws ReferenceError. globalThis.window is
+      // undefined in worker → optional-chain returns undefined → silent no-op.
+      // Worker callers route through the rootScope 'user_auth' listener
+      // installed by panelBridge.ts initPanelBridge() instead.
+      const bridge = (globalThis as any).window?.__panelBridge;
+      const dcKey = updatedData.dcId ? `dc${updatedData.dcId}_auth_key` as keyof AccountSessionData : undefined;
+      const authKeyHex = dcKey ? updatedData[dcKey] as string | undefined : undefined;
+      console.warn('[panelBridge] accountController.update gate', {
+        accountNumber,
+        hasBridge: !!bridge,
+        hasUserId: !!updatedData.userId,
+        hasDcId: !!updatedData.dcId,
+        hasAuthKeyHex: !!authKeyHex
+      });
       if(bridge && updatedData.userId && updatedData.dcId) {
-        const dcKey = `dc${updatedData.dcId}_auth_key` as keyof AccountSessionData;
-        const authKeyHex = updatedData[dcKey] as string | undefined;
         if(authKeyHex) {
-          await bridge.onSessionSaved({
-            authKeyHex,
-            dcId: updatedData.dcId,
-            userId: updatedData.userId
-          });
+          try {
+            await bridge.onSessionSaved({
+              authKeyHex,
+              dcId: updatedData.dcId,
+              userId: typeof updatedData.userId === 'number' ? updatedData.userId : Number(updatedData.userId)
+            });
+          } catch(e) {
+            console.error('[panelBridge] onSessionSaved failed:', e);
+            // Audit failure is non-fatal — auth still works locally.
+          }
         }
       }
 

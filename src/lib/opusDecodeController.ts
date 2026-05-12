@@ -11,6 +11,7 @@ import {Modify} from '@types';
 import {logger, LogTypes} from '@lib/logger';
 import apiManagerProxy from '@lib/apiManagerProxy';
 import type {ConvertWebPTask} from '@lib/webp/webpWorkerController';
+import {getPanelAccountId} from '@lib/panelAccountScope';
 
 type Result = {
   bytes: Uint8Array,
@@ -44,7 +45,12 @@ export class OpusDecodeController {
   public loadWavWorker() {
     if(this.wavWorker) return;
 
-    this.wavWorker = new Worker('waveWorker.min.js');
+    // Defense-in-depth: name the worker `panel-{accountId}` so any
+    // future code path that calls getPanelAccountId() inside the worker
+    // resolves correctly (panelAccountScope.ts:54-64). Stateless today.
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
+    this.wavWorker = new Worker('waveWorker.min.js', {name: workerName});
     this.wavWorker.addEventListener('message', (e) => {
       const data = e.data;
 
@@ -59,7 +65,12 @@ export class OpusDecodeController {
   public loadWorker() {
     if(this.worker) return;
 
-    this.worker = new Worker('decoderWorker.min.js');
+    // Defense-in-depth: name the worker `panel-{accountId}` so any
+    // future code path that calls getPanelAccountId() inside the worker
+    // resolves correctly (panelAccountScope.ts:54-64). Stateless today.
+    const accountId = getPanelAccountId();
+    const workerName = accountId ? `panel-${accountId}` : '';
+    this.worker = new Worker('decoderWorker.min.js', {name: workerName});
     this.worker.addEventListener('message', (e) => {
       const data = e.data;
 

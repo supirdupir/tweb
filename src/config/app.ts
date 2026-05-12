@@ -11,6 +11,7 @@
 
 import type {TrueDcId} from '@types';
 import langPackLocalVersion from '@/langPackLocalVersion';
+import {panelScopedName} from '@lib/panelAccountScope';
 
 export const MAIN_DOMAINS = ['web.telegram.org', 'webk.telegram.org'];
 export const DEFAULT_BACKGROUND_SLUG = 'pattern';
@@ -35,7 +36,10 @@ const App = {
   threads,
   lottieWorkers: threads,
   cryptoWorkers: threads,
-  interclientBroadcastChannel: 'tgweb'
+  // Scoped by Panel account_id when in Panel mode — without this, two
+  // iframes on the same origin would elect a single master via this
+  // channel (singleInstance.ts:87) and one would be deactivated.
+  interclientBroadcastChannel: panelScopedName('tgweb')
 };
 
 if(App.isMainDomain) { // use Webogram credentials then

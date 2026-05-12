@@ -1,0 +1,51 @@
+.panel-progress-track {
+  width: 280px;
+  height: 4px;
+  background: var(--input-fill);
+  border-radius: 2px;
+  margin: 32px auto 0;
+  overflow: hidden;
+}
+
+.panel-progress-fill {
+  height: 100%;
+  width: 25%;
+  background: var(--primary-color);
+  border-radius: 2px;
+  transition: width 300ms ease-out, background-color 200ms;
+
+  &.error {
+    background: #e53935;
+  }
+}
+
+.panel-progress-detail {
+  font-size: 14px;
+  color: var(--secondary-text-color);
+  text-align: center;
+  margin-top: 16px;
+  min-height: 20px;
+  padding: 0 24px;
+}
+
+.panel-progress-error {
+  color: #e53935;
+  font-size: 14px;
+  text-align: center;
+  margin-top: 16px;
+  padding: 0 24px;
+}
+
+.panel-progress-retry {
+  margin-top: 24px;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+  min-width: 140px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-progress-fill {
+    transition: none;
+  }
+}

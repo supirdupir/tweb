@@ -18,6 +18,7 @@ import MemoryWriter from '@lib/files/memoryWriter';
 import FileStorage from '@lib/files/fileStorage';
 import pause from '@helpers/schedulers/pause';
 import {HTTPHeaderNames} from '@lib/constants';
+import {panelScopedName} from '@lib/panelAccountScope';
 
 
 type CacheStorageDbConfigEntry = {
@@ -65,10 +66,22 @@ type MinimalBlockingIterateResponsesCallbackArgs = {
 
 export type CacheStorageDbName = keyof typeof cacheStorageDbConfig;
 
+// Exported for one-time legacy wipe of unscoped Cache Storage names left
+// behind by older builds that didn't yet panel-scope cache databases —
+// see initPanelBridge() in src/panelBridge.ts.
+export const CACHE_STORAGE_DB_NAMES = Object.keys(cacheStorageDbConfig) as CacheStorageDbName[];
+
 export default class CacheStorageController implements FileStorage {
   private static STORAGES: CacheStorageController[] = [];
   private openDbPromise: Promise<Cache>;
   private config: CacheStorageDbConfigEntry;
+
+  // Bare logical name used for in-memory bookkeeping, config lookup,
+  // disabledPromisesByKey keying, and getOpenStoragesByNames matching.
+  // The physical (Cache Storage) name is panel-scoped — see physicalDbName.
+  // Keeping the two separate avoids breaking static helpers that take
+  // bare CacheStorageDbName values (e.g. temporarilyToggleByName).
+  private physicalDbName: string;
 
   private useStorage = true;
 
@@ -88,6 +101,14 @@ export default class CacheStorageController implements FileStorage {
     }
 
     this.config = Object.entries(cacheStorageDbConfig).find(([name]) => name === dbName)?.[1];
+
+    // Per-account isolation on shared origin: cachedFiles /
+    // cachedStreamChunks carry decrypted user media; without scoping they
+    // were shared across Panel iframes and could leak content from one
+    // account into another. panelScopedName() is a no-op in standalone
+    // tweb so on-disk schema stays compatible for normal users at
+    // web.telegram.org.
+    this.physicalDbName = panelScopedName(this.dbName);
 
     this.openDatabase();
     CacheStorageController.STORAGES.push(this);
@@ -151,20 +172,7 @@ export default class CacheStorageController implements FileStorage {
   }
 
   private openDatabase(): Promise<Cache> {
-    // `caches` (CacheStorage API) is gated to *secure contexts* per WICG.
-    // The panel iframe currently runs over plain HTTP on a bare IP, where
-    // `globalThis.caches` is undefined and ANY reference to the bare
-    // `caches` identifier throws `ReferenceError: caches is not defined`
-    // synchronously. Without this guard, the worker's CacheStorageController
-    // construction crashes the entire MTProto manager startup before any
-    // page is mounted. The cache layer is purely a perf optimization for
-    // media — gracefully rejecting here lets the rest of tweb run unaffected
-    // (callers already handle openDatabase() rejections by falling back to
-    // direct fetch).
-    if(typeof caches === 'undefined') {
-      return this.openDbPromise ??= Promise.reject(new Error('CacheStorage unavailable (non-secure context)'));
-    }
-    return this.openDbPromise ?? (this.openDbPromise = caches.open(this.dbName));
+    return this.openDbPromise ?? (this.openDbPromise = caches.open(this.physicalDbName));
   }
 
   public delete(entryName: string) {
@@ -176,13 +184,7 @@ export default class CacheStorageController implements FileStorage {
    */
   public deleteAll() {
     this.openDbPromise = undefined;
-    // Same guard as openDatabase — see comment there. Returning resolved
-    // `false` matches what `caches.delete` would return when the cache
-    // didn't exist, which is the safest no-op for callers.
-    if(typeof caches === 'undefined') {
-      return Promise.resolve(false);
-    }
-    return caches.delete(this.dbName);
+    return caches.delete(this.physicalDbName);
   }
 
   public reset() {

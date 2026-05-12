@@ -56,7 +56,7 @@ import {MAX_SIDEBAR_WIDTH, MIN_SIDEBAR_WIDTH, SIDEBAR_COLLAPSE_FACTOR} from '@co
 import useHasFoldersSidebar, {useIsSidebarCollapsed} from '@stores/foldersSidebar';
 import appNavigationController from '@components/appNavigationController';
 import {preventCrossTabDynamicImportDeadlock} from '@helpers/preventDeadlock';
-import {initPanelBridge} from '@/panelBridge';
+import {initPanelBridge} from './panelBridge';
 
 // import commonStateStorage from '@lib/commonStateStorage';
 // import { STATE_INIT } from '@config/state';
@@ -69,14 +69,19 @@ import {initPanelBridge} from '@/panelBridge';
 //   })();
 // }
 
-// Panel iframe bootstrap. Runs synchronously at module top so the bridge
-// is mounted on `window.__panelBridge` BEFORE any page module reads
-// `(window as any).__panelBridge`. Returns {panelMode: false} for
-// standalone tweb (no jwt URL param) so the rest of this file runs
-// unchanged outside Panel.
-const {panelMode, restorePromise: panelRestorePromise} = initPanelBridge();
-if(panelRestorePromise) (window as any).__panelRestorePromise = panelRestorePromise;
-
+// Plan 06: bridge init clears localStorage synchronously and fires
+// IndexedDB cleanup as a background promise. Top-level await would be
+// cleaner here but requires bumping tsconfig.module to es2022+. The
+// fire-and-forget delete usually completes in <50 ms (single store
+// drop, no schema), well before tweb's auth-routing code at line 518
+// reads the DB. If a race trips, the operator can re-open the modal.
+// When cached=1, initPanelBridge also kicks off bridge.restoreCachedSession
+// in the background. pageProgress later awaits __panelRestorePromise to
+// short-circuit the QR loop on success. See plan F-5 (Strategy B2).
+const {panelMode, restorePromise} = initPanelBridge();
+if(restorePromise) {
+  (window as any).__panelRestorePromise = restorePromise;
+}
 
 IMAGE_MIME_TYPES_SUPPORTED_PROMISE.then((mimeTypes) => {
   mimeTypes.forEach((mimeType) => {
@@ -524,6 +529,15 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
 
   setDocumentLangPackProperties(langPack);
 
+  if(panelMode) {
+    // Panel iframe — show progress UI instead of standard auth flow.
+    // pageProgress drives the same QR-poll loop as pageSignQR but renders
+    // a progress bar + stage text, and mounts pageIm/pagePassword exactly
+    // like pageSignQR would.
+    await import('./pages/pageProgress').then((m) => m.default.mount());
+    return;
+  }
+
   let authState = stateResult.state.authState;
 
   const hash = location.hash;
@@ -557,7 +571,7 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
     appNavigationController.overrideHash(params.tgaddr ? '#?tgaddr=' + encodeURIComponent(params.tgaddr) : '');
   }
 
-  if(panelMode || authState._ !== 'authStateSignedIn'/*  || 1 === 1 */) {
+  if(authState._ !== 'authStateSignedIn'/*  || 1 === 1 */) {
     console.log('Will mount auth page:', authState._, Date.now() / 1000);
 
     (async() => {
@@ -627,33 +641,25 @@ function setDocumentLangPackProperties(langPack: LangPackDifference.langPackDiff
 
     let pagePromise: Promise<void>;
     // langPromise.then(async() => {
-    if(panelMode) {
-      // Panel iframe: always mount pageProgress regardless of authState.
-      // pageProgress reads bridge.cached to decide between iterateRestore
-      // (await cached-session GET) and iterateQR (poll auth.exportLoginToken
-      // + forward each new token to bridge.onQrToken).
-      pagePromise = (await import('./pages/pageProgress')).default.mount();
-    } else {
-      switch(authState._) {
-        case 'authStateSignIn':
-          pagePromise = (await import('./pages/pageSignIn')).default.mount();
-          break;
-        case 'authStateSignQr':
-          pagePromise = (await import('./pages/pageSignQR')).default.mount();
-          break;
-        case 'authStateAuthCode':
-          pagePromise = (await import('./pages/pageAuthCode')).default.mount(authState.sentCode);
-          break;
-        case 'authStatePassword':
-          pagePromise = (await import('./pages/pagePassword')).default.mount();
-          break;
-        case 'authStateSignUp':
-          pagePromise = (await import('./pages/pageSignUp')).default.mount(authState.authCode);
-          break;
-        case 'authStateSignImport':
-          pagePromise = (await import('./pages/pageSignImport')).default.mount(authState.data);
-          break;
-      }
+    switch(authState._) {
+      case 'authStateSignIn':
+        pagePromise = (await import('./pages/pageSignIn')).default.mount();
+        break;
+      case 'authStateSignQr':
+        pagePromise = (await import('./pages/pageSignQR')).default.mount();
+        break;
+      case 'authStateAuthCode':
+        pagePromise = (await import('./pages/pageAuthCode')).default.mount(authState.sentCode);
+        break;
+      case 'authStatePassword':
+        pagePromise = (await import('./pages/pagePassword')).default.mount();
+        break;
+      case 'authStateSignUp':
+        pagePromise = (await import('./pages/pageSignUp')).default.mount(authState.authCode);
+        break;
+      case 'authStateSignImport':
+        pagePromise = (await import('./pages/pageSignImport')).default.mount(authState.data);
+        break;
     }
     // });
 

@@ -123,6 +123,27 @@ const onFirstMount = (): Promise<any> => {
 
   let getStateInterval: number;
 
+  // Plan 06: when running inside Panel's iframe (window.__panelBridge present),
+  // fetch the stored 2FA password from /v1/.../login/web/2fa-password and
+  // auto-submit. Only fires once per page mount; null/missing password
+  // leaves the form for manual entry.
+  let autoFillTried = false;
+  const tryPanelAutoFill = (): void => {
+    if(autoFillTried) return;
+    autoFillTried = true;
+    const bridge = (window as any).__panelBridge;
+    if(!bridge || typeof bridge.getTwoFAPassword !== 'function') return;
+    bridge.getTwoFAPassword().then((pw: string | null) => {
+      if(!pw || passwordInput.value || !state) return;
+      passwordInput.value = pw;
+      passwordInputField.setValueSilently(pw);
+      bridge.setStage(2, 'Проверяем пароль...');
+      onSubmit();
+    }).catch((e: any) => {
+      console.error('[panelBridge] getTwoFAPassword failed:', e);
+    });
+  };
+
   const getState = () => {
     // * just to check session relevance
     if(!getStateInterval) {
@@ -137,6 +158,8 @@ const onFirstMount = (): Promise<any> => {
       } else {
         passwordInputField.setLabel();
       }
+
+      tryPanelAutoFill();
     });
   };
 
@@ -210,32 +233,10 @@ const onFirstMount = (): Promise<any> => {
   const size = mediaSizes.isMobile ? 100 : 166;
   monkey = new PasswordMonkey(passwordInputField, size);
   page.imageDiv.append(monkey.container);
-
-  const initPromise = Promise.all([
+  return Promise.all([
     monkey.load(),
     getState()
   ]);
-
-  // Panel-mode auto-fill: once getState() has populated `state` with the
-  // current SRP params, pull the Keeper-stored 2FA password and submit.
-  // SRP runs on the iframe side (passwordManager.check) so the resulting
-  // auth_key lands in tweb's session, not the farm's.
-  initPromise.then(async() => {
-    const bridge = (window as any).__panelBridge;
-    if(!bridge) return;
-    try {
-      const pw = await bridge.getTwoFAPassword();
-      if(!pw || passwordInput.value || !state) return;
-      passwordInputField.setValueSilently(pw);
-      passwordInput.value = pw;
-      bridge.setStage(2, 'Проверяем пароль...');
-      onSubmit();
-    } catch(e) {
-      console.error('[panelBridge] getTwoFAPassword failed:', e);
-    }
-  });
-
-  return initPromise;
 };
 
 const page = new Page('page-password', true, onFirstMount, () => {

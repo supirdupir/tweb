@@ -18,6 +18,7 @@ import idleController from '@helpers/idleController';
 import {getCurrentAccount} from '@lib/accounts/getCurrentAccount';
 import type {ActiveAccountNumber} from '@lib/accounts/types';
 import {logger} from '@lib/logger';
+import {getPanelAccountId} from '@lib/panelAccountScope';
 import rootScope from '@lib/rootScope';
 import sessionStorage from '@lib/sessionStorage';
 import apiManagerProxy from '@lib/apiManagerProxy';
@@ -64,20 +65,22 @@ export class SingleInstance extends EventListenerBase<{
       return;
     }
 
-    // Panel-iframe bypass: panel-bridge mounts each Telegram-Web account in
-    // its own iframe on the SAME origin (94.26.83.103:5174). singleInstance
-    // coordinates via localStorage `xt_instance` + a BroadcastChannel; with
-    // N panel iframes alive, all but the first see themselves as "other
-    // tabs" and deactivate with the "Too many tabs..." overlay. In panel
-    // mode each iframe is intentionally a separate Worker
-    // (noSharedWorker=1 forces dedicated workers per iframe), so tab
-    // arbitration is both useless and actively hostile to the UX —
-    // skip it entirely when the panel-bridge is on window.
-    if((window as any).__panelBridge) {
+    this.started = true;
+
+    // Panel mode: each iframe operates as an independently-active master.
+    // The cross-tab election (BroadcastChannel `tgweb` + sessionStorage
+    // `xt_instance`) was designed for normal tweb where one tab is the
+    // session manager — Panel manages window lifecycle externally and
+    // serves a *different* account per iframe, so all iframes must be
+    // master simultaneously. Skipping the election also avoids dispatching
+    // 'deactivated' events that would suspend networkers in the second
+    // iframe to open. See lib/panelAccountScope.ts.
+    if(getPanelAccountId()) {
+      this.masterInstance = true;
+      this.log.warn('panel mode: skipping cross-tab election, instance is master');
       return;
     }
 
-    this.started = true;
     this.listenOtherClients();
     this.reset();
 
