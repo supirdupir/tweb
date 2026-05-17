@@ -50,7 +50,7 @@ describe('constructTelegramWebSocketUrl', () => {
   it('returns undefined (hard-fail) when bridge is present but config is null', () => {
     (window as any).__panelBridge = {
       capabilities: {proxyRelay: true},
-      getProxyConfig: () => null,
+      getProxyConfig: (): null => null,
     };
     const url = constructTelegramWebSocketUrl(2, 'client');
     expect(url).toBeUndefined();
