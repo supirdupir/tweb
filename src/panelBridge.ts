@@ -683,6 +683,19 @@ export function initPanelBridge(): InitPanelBridgeResult {
   const bridge = new PanelBridge(accountId, cached, jwt, origin);
   (window as any).__panelBridge = bridge;
 
+  // Handshake: notify parent that bridge is mounted and ready to receive
+  // postMessages (e.g. panel-bridge:set-relay-config). Without this signal
+  // parent races iframe load — postMessage fired before iframe loaded hits
+  // an about:blank contentWindow on the parent's origin (no :5174 port) and
+  // browser rejects with 'target origin does not match recipient'.
+  // Use '*' targetOrigin because bridge cannot know parent origin in
+  // cross-origin context; the message carries no sensitive payload.
+  try {
+    window.parent.postMessage({type: 'panel-bridge:ready', accountId}, '*');
+  } catch{
+    // standalone tweb (no parent) — ignore
+  }
+
   // Panel iframe assumes operator accounts have no passcode (see
   // TWEB_AUTH_LOCALSTORAGE_KEYS comment). Resolve early so subsequent
   // sessionStorage operations don't await on settings-load.
