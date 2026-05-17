@@ -208,6 +208,15 @@ export class DcConfigurator {
       connectionType = 'client';
     } */
 
+    // Panel mode: silently rewrite https → websocket so that EVERY caller
+    // (authorizer, pingTransports, network manager, etc.) ends up with a
+    // working websocket transport routed through the relay. Without this
+    // remap, callers that asked for https get null and crash on
+    // ``transport.send()`` / ``transport._send()``.
+    if(transportType === 'https' && isPanelMode()) {
+      transportType = 'websocket';
+    }
+
     if(!this.chosenServers.hasOwnProperty(transportType)) {
       this.chosenServers[transportType] = {
         client: {},
