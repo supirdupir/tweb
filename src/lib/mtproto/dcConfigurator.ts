@@ -208,14 +208,17 @@ export class DcConfigurator {
       connectionType = 'client';
     } */
 
-    // Panel mode: silently rewrite https → websocket so that EVERY caller
-    // (authorizer, pingTransports, network manager, etc.) ends up with a
-    // working websocket transport routed through the relay. Without this
-    // remap, callers that asked for https get null and crash on
-    // ``transport.send()`` / ``transport._send()``.
-    if(transportType === 'https' && isPanelMode()) {
-      transportType = 'websocket';
-    }
+    // Panel mode: do NOT remap https → websocket here. pingTransports stores
+    // the returned transport in `transports.https` and immediately calls
+    // `(transports.https as HTTP)._send(...)` — but a websocket transport
+    // (TcpObfuscated) has no `_send` method, so the remap would throw
+    // `TypeError: this.transports.https._send is not a function` and the
+    // ping loop would never complete. Instead, let transportHTTP return
+    // undefined (existing isPanelMode gate above) → chooseServer returns
+    // null. pingTransports has its own null-check that resolves
+    // httpPromise=false and proceeds with the websocket transport alone.
+    // The authorizer then picks 'websocket' because the ping returned
+    // websocket=true, and routes through the relay.
 
     if(!this.chosenServers.hasOwnProperty(transportType)) {
       this.chosenServers[transportType] = {
