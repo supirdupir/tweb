@@ -8,17 +8,17 @@ import App from '@config/app';
 import deferredPromise from '@helpers/cancellablePromise';
 import EventListenerBase from '@helpers/eventListenerBase';
 import pause from '@helpers/schedulers/pause';
-import {TransportType, DcConfigurator} from '@lib/mtproto/dcConfigurator';
+import {DcConfigurator, type TransportType} from '@lib/mtproto/dcConfigurator';
 import type HTTP from '@lib/mtproto/transports/http';
 import type TcpObfuscated from '@lib/mtproto/transports/tcpObfuscated';
-import MTTransport from '@lib/mtproto/transports/transport';
+import type MTTransport from '@lib/mtproto/transports/transport';
 
 export class MTTransportController extends EventListenerBase<{
-  change: (opened: MTTransportController['opened']) => void,
-  transport: (type: TransportType) => void
+  change: (opened: MTTransportController['opened']) => void;
+  transport: (type: TransportType) => void;
 }> {
   private opened: Map<TransportType, number>;
-  private transports: {[k in TransportType]?: MTTransport};
+  private transports: { [k in TransportType]?: MTTransport };
   private pinging: boolean;
   private dcConfigurator: DcConfigurator;
 
@@ -42,40 +42,63 @@ export class MTTransportController extends EventListenerBase<{
   }
 
   public async pingTransports() {
-    const dcConfigurator = this.dcConfigurator ??= new DcConfigurator();
+    const dcConfigurator = (this.dcConfigurator ??= new DcConfigurator());
     const timeout = 2000;
-    const transports: {[k in TransportType]?: MTTransport} = this.transports = {
+    const transports: { [k in TransportType]?: MTTransport } = (this.transports = {
       https: dcConfigurator.chooseServer(App.baseDcId, 'client', 'https', false),
       websocket: dcConfigurator.chooseServer(App.baseDcId, 'client', 'websocket', false)
-    };
+    });
 
+    // Panel mode: dcConfigurator returns null for HTTPS to force WS-only
+    // routing through the relay (no direct-to-Telegram fallback). Without
+    // this null check pingTransports would crash on '_send' of null and
+    // the entire MTProto worker would never connect.
     const httpPromise = deferredPromise<boolean>();
-    ((this.transports.https as HTTP)._send(new Uint8Array(), 'no-cors') as any as Promise<any>)
-    .then(() => httpPromise.resolve(true), () => httpPromise.resolve(false));
-    setTimeout(() => httpPromise.resolve(false), timeout);
+    if(this.transports.https) {
+      (
+        (this.transports.https as HTTP)._send(new Uint8Array(), 'no-cors') as any as Promise<any>
+      ).then(
+        () => httpPromise.resolve(true),
+        () => httpPromise.resolve(false),
+      );
+      setTimeout(() => httpPromise.resolve(false), timeout);
+    } else {
+      httpPromise.resolve(false);
+    }
 
     const websocketPromise = deferredPromise<boolean>();
     const socket = transports.websocket as TcpObfuscated;
-    socket.setAutoReconnect(false);
-    socket.connection.addEventListener('close', () => websocketPromise.resolve(false), {once: true});
-    socket.connection.addEventListener('open', () => websocketPromise.resolve(true), {once: true});
-    setTimeout(() => {
-      if(websocketPromise.isFulfilled || websocketPromise.isRejected) {
-        return;
-      }
+    if(socket) {
+      socket.setAutoReconnect(false);
+      socket.connection.addEventListener('close', () => websocketPromise.resolve(false), {
+        once: true
+      });
+      socket.connection.addEventListener('open', () => websocketPromise.resolve(true), {
+        once: true
+      });
+      setTimeout(() => {
+        if(websocketPromise.isFulfilled || websocketPromise.isRejected) {
+          return;
+        }
 
-      if(socket.connection) {
-        socket.connection.close();
-      }
+        if(socket.connection) {
+          socket.connection.close();
+        }
 
+        websocketPromise.resolve(false);
+      }, timeout);
+    } else {
       websocketPromise.resolve(false);
-    }, timeout);
+    }
 
-    const [isHttpAvailable, isWebSocketAvailable] = await Promise.all([httpPromise, websocketPromise]);
+    const [isHttpAvailable, isWebSocketAvailable] = await Promise.all([
+      httpPromise,
+      websocketPromise
+    ]);
 
     for(const transportType in transports) {
       const transport = transports[transportType as TransportType];
-      transport.destroy();
+      if(transport) transport.destroy();
     }
 
     const result = {
