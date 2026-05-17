@@ -130,6 +130,17 @@ export class DcConfigurator {
       return;
     }
 
+    // Panel WS-relay mode — block HTTPS transport entirely, force websocket-only
+    // routing through the panel relay. Otherwise tweb's pingTransports may pick
+    // HTTPS as a fallback when the WS relay-config postMessage hasn't arrived
+    // yet, which would go direct to venus*.web.telegram.org and leak the
+    // operator's real IP. The relay is wss:// only; HTTPS through it is not
+    // supported in v1.
+    const bridge = typeof window !== 'undefined' && (window as any).__panelBridge;
+    if(bridge && bridge.capabilities && bridge.capabilities.proxyRelay) {
+      return;
+    }
+
     let chosenServer: string;
     if(Modes.ssl || !Modes.http) {
       const suffix = getTelegramConnectionSuffix(connectionType);
