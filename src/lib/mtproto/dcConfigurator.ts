@@ -125,7 +125,7 @@ export class DcConfigurator {
     return new TcpObfuscated(oooohLetMeLive, dcId, chosenServer, logSuffix, retryTimeout);
   };
 
-  private transportHTTP = (dcId: DcId, connectionType: ConnectionType, premium?: boolean) => {
+  private transportHTTP = (dcId: DcId, connectionType: ConnectionType, _premium?: boolean) => {
     if (!import.meta.env.VITE_MTPROTO_HAS_HTTP) {
       return;
     }
