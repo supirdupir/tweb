@@ -41,6 +41,41 @@ export function getTelegramConnectionSuffix(connectionType: ConnectionType) {
   return connectionType === 'client' ? '' : '-1';
 }
 
+// Panel WS-relay URL — works in BOTH main-thread (window) and worker
+// (self) contexts. Bridge in main thread is unreachable from MTProto
+// worker, so we don't rely on it; instead we read the relay URL from
+// the document/worker location's query string. Panel-API embeds it in
+// the iframe URL on /v1/login/web/lock so it's available everywhere
+// the iframe code runs (main + worker + service-worker).
+function getRelayUrlFromLocation(): string | undefined {
+  try {
+    const loc = typeof globalThis !== 'undefined' ? (globalThis as any).location : undefined;
+    const search: string | undefined = loc?.search;
+    if(!search) return undefined;
+    const params = new URLSearchParams(search);
+    const raw = params.get('relay_url');
+    return raw || undefined;
+  } catch{
+    return undefined;
+  }
+}
+
+// True when the current document/worker is running inside a Panel iframe.
+// Panel always sets ?account_id=... on the iframe src (see web_login.py),
+// so its presence is the panel-mode signal. When true, we MUST route
+// through the relay or hard-fail (no direct-Telegram fallback) to prevent
+// leaking the operator's real IP.
+function isPanelMode(): boolean {
+  try {
+    const loc = typeof globalThis !== 'undefined' ? (globalThis as any).location : undefined;
+    const search: string | undefined = loc?.search;
+    if(!search) return false;
+    return new URLSearchParams(search).has('account_id');
+  } catch{
+    return false;
+  }
+}
+
 export function constructTelegramWebSocketUrl(
   dcId: DcId,
   connectionType: ConnectionType,
@@ -50,25 +85,25 @@ export function constructTelegramWebSocketUrl(
     return;
   }
 
-  // Panel WS-relay override — when running inside a Panel iframe, route all
-  // MTProto WebSocket connections through the panel relay instead of directly
-  // to Telegram. Hard-fail (return undefined) if bridge is present but config
-  // has not arrived yet — prevents silent direct-Telegram fallback which would
-  // bypass the operator's proxy and leak the account IP.
-  const bridge = typeof window !== 'undefined' && (window as any).__panelBridge;
-  if(bridge && bridge.capabilities && bridge.capabilities.proxyRelay) {
-    const cfg = bridge.getProxyConfig();
-    if(cfg && cfg.relayUrl) {
-      // Replace the DC placeholder in the relay URL with the real dcId.
-      // Relay URL format: wss://host/api/ws-relay/<account_id>/<dc>?jwt=<token>
-      // The placeholder '<dc>' in the URL is replaced at connection time.
-      return cfg.relayUrl.replace('<dc>', String(dcId));
+  // Panel WS-relay override — applies in BOTH main-thread iframe and
+  // MTProto worker (which has no window.__panelBridge access). Read
+  // relay URL from query string written by /v1/login/web/lock.
+  if(isPanelMode()) {
+    const relayUrl = getRelayUrlFromLocation();
+    if(!relayUrl) {
+      // Panel mode but no relay URL — hard-fail, no direct-Telegram fallback.
+      // This prevents the IP leak that occurred when the worker context
+      // silently fell through to wss://venus*.web.telegram.org.
+
+      console.error('[dcConfigurator] panel mode but no relay_url in location.search — refusing direct connection');
+      return undefined;
     }
-    // Bridge is ready but config has not arrived yet — hard-fail. The
-    // transport layer will retry after the relay-config postMessage lands.
-    return undefined;
+    // Replace the DC placeholder. Relay URL format from the server:
+    //   wss://host/api/ws-relay/<account_id>/<dc>?jwt=<token>
+    return relayUrl.replace('<dc>', String(dcId));
   }
 
+  // Standalone tweb (no panel) — direct Telegram URL.
   const suffix = getTelegramConnectionSuffix(connectionType);
   const path =
     connectionType !== 'client' ?
@@ -130,14 +165,11 @@ export class DcConfigurator {
       return;
     }
 
-    // Panel WS-relay mode — block HTTPS transport entirely, force websocket-only
-    // routing through the panel relay. Otherwise tweb's pingTransports may pick
-    // HTTPS as a fallback when the WS relay-config postMessage hasn't arrived
-    // yet, which would go direct to venus*.web.telegram.org and leak the
-    // operator's real IP. The relay is wss:// only; HTTPS through it is not
-    // supported in v1.
-    const bridge = typeof window !== 'undefined' && (window as any).__panelBridge;
-    if(bridge && bridge.capabilities && bridge.capabilities.proxyRelay) {
+    // Panel mode — block HTTPS transport entirely, force websocket-only via
+    // panel relay. Otherwise tweb's pingTransports may pick HTTPS as a
+    // fallback and go direct to venus*.web.telegram.org, leaking the
+    // operator's real IP. v1 relay is wss:// only.
+    if(isPanelMode()) {
       return;
     }
 
