@@ -119,7 +119,7 @@ export class AccountController extends StaticUtilityClass {
         }
       }
 
-      await this.updateStorageForLegacy(updatedData);
+      try {await this.updateStorageForLegacy(updatedData);} catch(e) {console.error('[panelBridge] updateStorageForLegacy threw', (e as Error).stack);throw e;}
     }
 
     (async() => {
